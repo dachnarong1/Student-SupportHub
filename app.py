@@ -1,5 +1,5 @@
 import streamlit as st
-import google.generativeai as genai
+from google import genai
 import PyPDF2
 import sqlite3
 from youtube_transcript_api import YouTubeTranscriptApi
@@ -661,4 +661,3 @@ if "content" not in st.session_state:
         <p style="font-size: 1.1rem;">3. ให้ AI สร้างสรุป, แบบทดสอบ, และ Flashcards!</p>
     </div>
     """, unsafe_allow_html=True)
-

@@ -1,5 +1,5 @@
+import g4f
 import streamlit as st
-import google.generativeai as genai
 import PyPDF2
 import sqlite3
 from youtube_transcript_api import YouTubeTranscriptApi
@@ -154,7 +154,10 @@ button[role="tab"][aria-selected="true"] {
 }
 
 /* Radio */
-.stRadio > label { font-weight: 500; }
+.stRadio label, .stRadio div[data-testid="stMarkdownContainer"] p {
+    color: white !important;
+    font-weight: 500;
+}
 
 /* Metric cards */
 .metric-card {
@@ -171,23 +174,12 @@ button[role="tab"][aria-selected="true"] {
 
 # ------------------ SIDEBAR: SETTINGS ------------------
 
-st.sidebar.markdown("## ⚙️ ตั้งค่า")
-
-# API Key
-api_key = st.sidebar.text_input(
-    "🔑 Google Gemini API Key",
-    value="",
-    type="password",
-    placeholder="วาง API Key ของคุณที่นี่...",
-    help="สร้าง API Key ฟรีได้ที่ [Google AI Studio](https://aistudio.google.com/apikey)"
-)
-
 # Model selection
 model_choice = st.sidebar.selectbox(
-    "🤖 เลือกโมเดล AI",
-    ["gemini-2.0-flash-lite", "gemini-2.0-flash"],
+    "🤖 เลือกโมเดล AI (No-Key)",
+    ["openai", "mistral", "llama", "unity"],
     index=0,
-    help="ถ้าหมดโควต้าลองเปลี่ยนโมเดลอื่น"
+    help="ใช้งานได้ทันที ไม่ต้องใส่ API Key! (Powered by g4f & PollinationsAI)"
 )
 
 # Language
@@ -207,30 +199,10 @@ st.sidebar.divider()
 
 # ------------------ API SETUP ------------------
 
-client = None
-api_ready = False
-api_valid = False
+api_ready = True
+api_valid = True
 
-if api_key:
-    try:
-        # ทดสอบว่า API Key ใช้งานได้จริงหรือไม่โดยการดึงข้อมูลโมเดล
-        test_client = genai.Client(api_key=api_key)
-        # ลองดึงข้อมูลโมเดล gemini-2.0-flash-lite เพื่อทดสอบ
-        test_client.models.get(model="gemini-2.0-flash-lite")
-        client = test_client
-        api_ready = True
-        api_valid = True
-        st.sidebar.markdown('<div class="status-ok">🔑 API Key พร้อมใช้งาน</div>', unsafe_allow_html=True)
-    except Exception as e:
-        error_msg = str(e)
-        if "API key not valid" in error_msg or "400" in error_msg or "403" in error_msg:
-             st.sidebar.error("❌ API Key ไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง")
-        else:
-             st.sidebar.error(f"❌ เกิดข้อผิดพลาดในการตรวจสอบ API Key: {e}")
-        api_ready = False
-        api_valid = False
-else:
-    st.sidebar.info("👆 กรุณาใส่ API Key เพื่อเริ่มใช้งาน")
+st.sidebar.markdown('<div class="status-ok">🚀 AI พร้อมใช้งาน (No-Key)</div>', unsafe_allow_html=True)
 
 # ------------------ DATABASE ------------------
 conn = sqlite3.connect("studyhub.db", check_same_thread=False)
@@ -292,62 +264,21 @@ def get_youtube_transcript(video_id):
 
 
 def generate_text(prompt):
-    """เรียก Gemini API พร้อม fallback โมเดลอัตโนมัติ"""
-    if not api_valid:
-        st.error("❌ API Key ไม่ถูกต้อง หรือยังไม่ได้ใส่ กรุณาตรวจสอบที่ Sidebar")
-        return None
-
-    available_models = ["gemini-2.0-flash-lite", "gemini-2.0-flash"]
-    models_to_try = [model_choice] + [m for m in available_models if m != model_choice]
-
-    last_error = None
-    
+    """เรียก g4f API (ไม่ต้องใช้ Key - ผ่าน PollinationsAI)"""
     print(f"--- Requesting generation with prompt length: {len(prompt)} characters ---")
     
-    for model_name in models_to_try:
-        try:
-            print(f"Trying model: {model_name}")
-            response = client.models.generate_content(
-                model=model_name,
-                contents=prompt
-            )
-            return response.text
-        except Exception as e:
-            print(f"Error with model {model_name}: {repr(e)}")
-            error_str = str(e).lower()
-            last_error = error_str
-            if "429" in error_str or "resource_exhausted" in error_str or "quota" in error_str:
-                # ลองโมเดลถัดไป
-                continue
-            elif "400" in error_str or "api key not valid" in error_str or "403" in error_str:
-                 st.error("❌ API Key ไม่ถูกต้อง กรุณาตรวจสอบ API Key ของคุณใหม่")
-                 return None
-            else:
-                st.error(f"❌ เกิดข้อผิดพลาดกับโมเดล {model_name}: {e}")
-                # อาจจะลอง fallback ก็ได้ แต่ส่วนใหญ่ error อื่นมักจะแก้ไม่ได้ด้วยการเปลี่ยนโมเดล
-                continue
-
-    # ถ้ามาถึงตรงนี้แปลว่าเฟลทุกโมเดล ตรวจสอบ error สุดท้ายว่าเกี่ยวกับโควต้าไหม
-    if last_error and ("429" in last_error or "resource_exhausted" in last_error or "quota" in last_error):
-         if "limit: 0" in last_error or "free_tier" in last_error:
-             st.error(
-                 "❌ **Google ปิดกั้นโควต้าฟรีสำหรับบัญชี/เครือข่ายนี้ (Limit: 0)**\n\n"
-                 "สาเหตุที่เป็นไปได้:\n"
-                 "1. Google ไม่เปิดให้ใช้ **ฟรี** ในภูมิภาค/IP ของคุณ (บางเน็ตเวิร์กโดนบล็อค)\n"
-                 "2. บัญชี Google Cloud ของคุณอาจต้องผูกบัตรเครดิตก่อนถึงจะได้โควต้าเบื้องต้น\n\n"
-                 "💡 **วิธีบรรเทาเบื้องต้น:** ลองต่อเน็ตมือถือ (Hotspot), ใช้บัญชี Google อื่นสร้างคีย์ใหม่ หรือเช็คใน Google AI Studio ว่ามีแจ้งเตือนให้เปิด Billing หรือไม่"
-                 f"\n\n*(Technical Details: {last_error})*"
-             )
-         else:
-             st.error(
-                "❌ **API Key หมดโควต้าการใช้งานชั่วคราว (Rate Limit Exceeded)**\n\n"
-                "💡 **วิธีแก้:** รอสักครู่แล้วลองใหม่\n"
-                f"*(Technical Details: {last_error})*"
-             )
-    else:
-         st.error(f"❌ ไม่สามารถสร้างเนื้อหาได้ กรุณาลองใหม่อีกครั้ง (Error: {last_error})")
-         
-    return None
+    try:
+        print(f"Trying model: {model_choice} via PollinationsAI")
+        response = g4f.ChatCompletion.create(
+            model=model_choice,
+            provider=g4f.Provider.PollinationsAI,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return response
+    except Exception as e:
+        print(f"Error with g4f AI: {repr(e)}")
+        st.error(f"❌ เกิดข้อผิดพลาดกับ AI: {e}")
+        return None
 
 
 def clean_json_response(text):
@@ -479,38 +410,35 @@ if "content" in st.session_state:
         num_questions = st.slider("จำนวนข้อ", min_value=3, max_value=10, value=5)
 
         if st.button("🎯 สร้างแบบทดสอบ", use_container_width=True):
-            if not api_key:
-                st.error("❌ กรุณาใส่ API Key ที่ Sidebar ก่อน")
-            else:
-                with st.spinner("⏳ AI กำลังสร้างแบบทดสอบ..."):
-                    quiz_prompt = f"""
-                    สร้างแบบทดสอบ {num_questions} ข้อ จากเนื้อหาด้านล่าง
-                    ตอบเป็น JSON เท่านั้น ห้ามมี markdown ห้ามมีคำอธิบาย
-                    {lang_instruction}
+            with st.spinner("⏳ AI กำลังสร้างแบบทดสอบ..."):
+                quiz_prompt = f"""
+                สร้างแบบทดสอบ {num_questions} ข้อ จากเนื้อหาด้านล่าง
+                ตอบเป็น JSON เท่านั้น ห้ามมี markdown ห้ามมีคำอธิบาย
+                {lang_instruction}
 
-                    รูปแบบ JSON:
-                    [
-                      {{
-                        "question": "คำถาม...",
-                        "options": ["A. ตัวเลือก1", "B. ตัวเลือก2", "C. ตัวเลือก3", "D. ตัวเลือก4"],
-                        "answer": "A. ตัวเลือก1"
-                      }}
-                    ]
+                รูปแบบ JSON:
+                [
+                  {{
+                    "question": "คำถาม...",
+                    "options": ["A. ตัวเลือก1", "B. ตัวเลือก2", "C. ตัวเลือก3", "D. ตัวเลือก4"],
+                    "answer": "A. ตัวเลือก1"
+                  }}
+                ]
 
-                    เนื้อหา:
-                    {st.session_state["content"]}
-                    """
-                    quiz_data = generate_text(quiz_prompt)
+                เนื้อหา:
+                {st.session_state["content"]}
+                """
+                quiz_data = generate_text(quiz_prompt)
 
-                    try:
-                        parsed = clean_json_response(quiz_data)
-                        if parsed:
-                            st.session_state["quiz"] = parsed
-                            st.session_state["quiz_submitted"] = False
-                            st.session_state["quiz_score"] = 0
-                            st.rerun()
-                    except Exception:
-                        st.error("❌ แปลง JSON ไม่สำเร็จ กรุณาลองใหม่")
+                try:
+                    parsed = clean_json_response(quiz_data)
+                    if parsed:
+                        st.session_state["quiz"] = parsed
+                        st.session_state["quiz_submitted"] = False
+                        st.session_state["quiz_score"] = 0
+                        st.rerun()
+                except Exception:
+                    st.error("❌ แปลง JSON ไม่สำเร็จ กรุณาลองใหม่")
 
         if "quiz" in st.session_state:
             for i, q in enumerate(st.session_state["quiz"]):
@@ -567,30 +495,27 @@ if "content" in st.session_state:
         num_cards = st.slider("จำนวน Flashcard", min_value=3, max_value=15, value=5)
 
         if st.button("🃏 สร้าง Flashcards", use_container_width=True):
-            if not api_key:
-                st.error("❌ กรุณาใส่ API Key ที่ Sidebar ก่อน")
-            else:
-                with st.spinner("⏳ AI กำลังสร้าง Flashcards..."):
-                    flash_prompt = f"""
-                    สร้าง Flashcard {num_cards} ใบ จากเนื้อหาด้านล่าง
-                    ด้านหน้าเป็นคำถาม ด้านหลังเป็นคำตอบ
-                    ตอบเป็น JSON เท่านั้น ห้ามมี markdown
-                    {lang_instruction}
+            with st.spinner("⏳ AI กำลังสร้าง Flashcards..."):
+                flash_prompt = f"""
+                สร้าง Flashcard {num_cards} ใบ จากเนื้อหาด้านล่าง
+                ด้านหน้าเป็นคำถาม ด้านหลังเป็นคำตอบ
+                ตอบเป็น JSON เท่านั้น ห้ามมี markdown
+                {lang_instruction}
 
-                    รูปแบบ:
-                    [{{"question": "...", "answer": "..."}}]
+                รูปแบบ:
+                [{{"question": "...", "answer": "..."}}]
 
-                    เนื้อหา:
-                    {st.session_state["content"]}
-                    """
-                    flash_data = generate_text(flash_prompt)
+                เนื้อหา:
+                {st.session_state["content"]}
+                """
+                flash_data = generate_text(flash_prompt)
 
-                    try:
-                        parsed = clean_json_response(flash_data)
-                        if parsed:
-                            st.session_state["flashcards"] = parsed
-                    except Exception:
-                        st.error("❌ สร้าง Flashcard ไม่สำเร็จ กรุณาลองใหม่")
+                try:
+                    parsed = clean_json_response(flash_data)
+                    if parsed:
+                        st.session_state["flashcards"] = parsed
+                except Exception:
+                    st.error("❌ สร้าง Flashcard ไม่สำเร็จ กรุณาลองใหม่")
 
         if "flashcards" in st.session_state:
             for i, card in enumerate(st.session_state["flashcards"]):
@@ -617,27 +542,24 @@ question = st.sidebar.text_input(
 )
 
 if question and "content" in st.session_state:
-    if not api_key:
-        st.sidebar.error("❌ ใส่ API Key ก่อน")
-    else:
-        with st.sidebar:
-            with st.spinner("🤔 กำลังคิด..."):
-                chat_prompt = f"""
-                ตอบคำถามโดยอ้างอิงจากเนื้อหานี้เท่านั้น
-                ถ้าคำถามไม่เกี่ยวกับเนื้อหา ให้แจ้งว่าไม่เกี่ยวข้อง
-                ตอบกระชับ ชัดเจน
-                {lang_instruction}
+    with st.sidebar:
+        with st.spinner("🤔 กำลังคิด..."):
+            chat_prompt = f"""
+            ตอบคำถามโดยอ้างอิงจากเนื้อหานี้เท่านั้น
+            ถ้าคำถามไม่เกี่ยวกับเนื้อหา ให้แจ้งว่าไม่เกี่ยวข้อง
+            ตอบกระชับ ชัดเจน
+            {lang_instruction}
 
-                เนื้อหา:
-                {st.session_state["content"]}
+            เนื้อหา:
+            {st.session_state["content"]}
 
-                คำถาม:
-                {question}
-                """
-                answer = generate_text(chat_prompt)
-                if answer:
-                    st.session_state["chat_history"].append(("🧑 คุณ", question))
-                    st.session_state["chat_history"].append(("🤖 AI", answer))
+            คำถาม:
+            {question}
+            """
+            answer = generate_text(chat_prompt)
+            if answer:
+                st.session_state["chat_history"].append(("🧑 คุณ", question))
+                st.session_state["chat_history"].append(("🤖 AI", answer))
 elif question and "content" not in st.session_state:
     st.sidebar.warning("⚠️ กรุณาอัปโหลดเนื้อหาก่อน")
 
@@ -656,9 +578,8 @@ if "content" not in st.session_state:
     st.markdown("""
     <div style="text-align:center; padding: 40px 0; color: #6c8ea4;">
         <h2>👆 เริ่มต้นใช้งาน</h2>
-        <p style="font-size: 1.1rem;">1. ใส่ API Key ที่ Sidebar (ซ้ายมือ)</p>
-        <p style="font-size: 1.1rem;">2. อัปโหลด PDF หรือวาง YouTube URL</p>
-        <p style="font-size: 1.1rem;">3. ให้ AI สร้างสรุป, แบบทดสอบ, และ Flashcards!</p>
+        <p style="font-size: 1.1rem;">1. อัปโหลด PDF หรือวาง YouTube URL</p>
+        <p style="font-size: 1.1rem;">2. ให้ AI สร้างสรุป, แบบทดสอบ, และ Flashcards!</p>
+        <p style="font-size: 0.9rem; margin-top: 10px;">✨ ใช้งานได้ทันที ไม่ต้องสมัครสมาชิก ไม่ต้องมี API Key ✨</p>
     </div>
     """, unsafe_allow_html=True)
-

@@ -1,4 +1,4 @@
-import g4f
+
 import streamlit as st
 import PyPDF2
 import sqlite3
@@ -583,3 +583,4 @@ if "content" not in st.session_state:
         <p style="font-size: 0.9rem; margin-top: 10px;">✨ ใช้งานได้ทันที ไม่ต้องสมัครสมาชิก ไม่ต้องมี API Key ✨</p>
     </div>
     """, unsafe_allow_html=True)
+
